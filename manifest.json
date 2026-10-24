@@ -23,9 +23,9 @@
   },
   "background": {
     "scripts": [
-      "src/background.js"
+      "background.js"
     ],
-    "service_worker": "src/background.js"
+    "service_worker": "background.js"
   },
   "action": {
     "default_popup": "index.html",
@@ -37,13 +37,12 @@
         "<all_urls>"
       ],
       "js": [
-        "src/content.jsx"
+        "content.js"
       ],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
-    
     {
       "resources": [
         "wasm/*",

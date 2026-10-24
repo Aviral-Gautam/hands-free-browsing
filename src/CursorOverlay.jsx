@@ -25,10 +25,12 @@ function getViewport() {
 // 2.0 = 100% gain over the original head-to-screen mapping.
 const HEAD_SENSITIVITY = 2.0;
 
-const DWELL_DURATION_MS = 1000;
+const DWELL_DURATION_MS = 1700;
 // Grace period after the cursor settles on a new target before the dwell
 // countdown starts. Prevents accidental clicks while passing over elements.
 const HOVER_CLICK_DELAY_MS = 300;
+// Total time from first hovering a target to the auto-click: 2 seconds.
+// (HOVER_CLICK_DELAY_MS + DWELL_DURATION_MS)
 
 // Edge navigation (browser back / forward)
 const EDGE_ZONE_RATIO = 0.035; // 3.5% of viewport width
@@ -41,9 +43,14 @@ const EYES_CLOSED_THRESHOLD = 0.6;
 const DISENGAGE_HOLD_MS = 1500;
 const DISENGAGE_TOGGLE_GUARD_MS = 700;
 
+// Double blink (play / pause)
+const DOUBLE_BLINK_MAX_MS = 450; // each blink must be shorter than this
+const DOUBLE_BLINK_GAP_MS = 650; // max gap between the two blinks
+const DOUBLE_BLINK_COOLDOWN_MS = 1200;
+
 // Gesture thresholds
 const WINK_CLICK_THRESHOLD = 0.6;
-const BROW_PLAY_THRESHOLD = 0.55;
+const BROW_SCROLL_UP_THRESHOLD = 0.55;
 const SMILE_MUTE_THRESHOLD = 0.65;
 const JAW_SCROLL_DOWN_THRESHOLD = 0.35; // lowered for an easier scroll-down trigger
 
@@ -76,6 +83,12 @@ export default function CursorOverlay() {
   const eyesClosedSince = useRef(null);
   const requireEyesOpen = useRef(false);
   const lastDisengageToggle = useRef(0);
+
+  // Double blink (play / pause) state
+  const eyesWereClosed = useRef(false);
+  const blinkStartedAt = useRef(0);
+  const lastBlinkEndAt = useRef(0);
+  const lastDoubleBlinkAt = useRef(0);
 
   // Edge navigation state
   const [edgeNav, setEdgeNav] = useState(null); // { side, progress, fired }
@@ -482,6 +495,32 @@ export default function CursorOverlay() {
           setDisengageProgress(0);
         }
 
+        // ─── Double blink (two short both-eye blinks) → Play / Pause ───
+        if (eyesClosed && !eyesWereClosed.current) {
+          eyesWereClosed.current = true;
+          blinkStartedAt.current = now;
+        } else if (!eyesClosed && eyesWereClosed.current) {
+          eyesWereClosed.current = false;
+          const blinkDuration = now - blinkStartedAt.current;
+          const gap = now - lastBlinkEndAt.current;
+          const isShortBlink = blinkDuration <= DOUBLE_BLINK_MAX_MS;
+
+          if (
+            isShortBlink &&
+            lastBlinkEndAt.current > 0 &&
+            gap <= DOUBLE_BLINK_GAP_MS &&
+            now - lastDoubleBlinkAt.current > DOUBLE_BLINK_COOLDOWN_MS &&
+            !isDisengagedRef.current
+          ) {
+            lastDoubleBlinkAt.current = now;
+            lastBlinkEndAt.current = 0;
+            executeMediaAction('togglePlay');
+            lastActionTime.current = now;
+          } else {
+            lastBlinkEndAt.current = isShortBlink ? now : 0;
+          }
+        }
+
         // While disengaged: freeze the cursor and ignore every gesture.
         if (isDisengagedRef.current) return;
 
@@ -522,8 +561,8 @@ export default function CursorOverlay() {
           if (leftWink > WINK_CLICK_THRESHOLD) {
             executeClick(smoothedPos.current.x, smoothedPos.current.y);
             lastActionTime.current = now;
-          } else if (browInnerUp > BROW_PLAY_THRESHOLD) {
-            executeMediaAction('togglePlay');
+          } else if (browInnerUp > BROW_SCROLL_UP_THRESHOLD) {
+            window.scrollBy({ top: -350, behavior: 'smooth' });
             lastActionTime.current = now;
           } else if (mouthSmile > SMILE_MUTE_THRESHOLD) {
             executeMediaAction('toggleMute');

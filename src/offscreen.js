@@ -167,7 +167,7 @@ async function predictWebcam() {
           if (leftWink > 0.55) gestures.push('Left Wink (Click)');
           if (rightWink > 0.55) gestures.push('Right Wink (Scroll Up)');
           if (jawOpen > 0.35) gestures.push('Jaw Open (Scroll Down)');
-          if (browInnerUp > 0.55) gestures.push('Brow Raise (Play/Pause)');
+          if (browInnerUp > 0.55) gestures.push('Brow Raise (Scroll Up)');
           if (mouthSmile > 0.6) gestures.push('Smile (Mute)');
         }
 

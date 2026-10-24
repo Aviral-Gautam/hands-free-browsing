@@ -114,7 +114,7 @@ export default function App() {
           </div>
           <div className="cheat-item">
             <span className="cheat-icon">🎯</span>
-            <span className="cheat-desc"><b>Dwell (1.3s):</b> 0.3s settle, then auto-click countdown</span>
+            <span className="cheat-desc"><b>Dwell (2.0s):</b> Hover 2s to auto-click</span>
           </div>
           <div className="cheat-item">
             <span className="cheat-icon">😉</span>
@@ -130,7 +130,11 @@ export default function App() {
           </div>
           <div className="cheat-item">
             <span className="cheat-icon">🤨</span>
-            <span className="cheat-desc"><b>Brow Raise:</b> Play / Pause media</span>
+            <span className="cheat-desc"><b>Brow Raise:</b> Smooth scroll up</span>
+          </div>
+          <div className="cheat-item">
+            <span className="cheat-icon">😛</span>
+            <span className="cheat-desc"><b>Double Blink:</b> Play / Pause media</span>
           </div>
           <div className="cheat-item">
             <span className="cheat-icon">😊</span>
@@ -161,7 +165,7 @@ export default function App() {
           </div>
           <div className="cheat-item">
             <span className="cheat-icon">⏯️</span>
-            <span className="cheat-desc"><b>Play / Pause:</b> Brow raise or 'k'</span>
+            <span className="cheat-desc"><b>Play / Pause:</b> Double blink or 'k'</span>
           </div>
           <div className="cheat-item">
             <span className="cheat-icon">⏪</span>

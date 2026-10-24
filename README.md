@@ -9,6 +9,9 @@ The webcam feed never leaves your machine: face tracking runs entirely on-device
 ## Quick start
 
 ```bash
+#Clone this repository
+git clone https://github.com/Arival-Gautam/hands-free-browsing.git
+
 cd hands-free-browsing
 npm install
 npm run build

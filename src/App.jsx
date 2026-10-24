@@ -150,7 +150,7 @@ export default function App() {
           </div>
           <div className="cheat-item">
             <span className="cheat-icon">😴</span>
-            <span className="cheat-desc"><b>Eyes Closed (1.5s):</b> Disengage / re-engage</span>
+            <span className="cheat-desc"><b>Eyes Closed (1.5s):</b> Pause tracking — hold again to resume</span>
           </div>
         </div>
       )}

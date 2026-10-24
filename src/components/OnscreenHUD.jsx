@@ -91,19 +91,27 @@ export default function OnscreenHUD({
               : 'Mouse Fallback'}
           </span>
 
-          {!isDisengaged && disengageProgress > 0 && (
+          {(isDisengaged || disengageProgress > 0) && (
             <span
               style={{
                 padding: '2px 6px',
                 borderRadius: '10px',
                 fontSize: '10px',
                 fontWeight: '700',
-                backgroundColor: 'rgba(168, 85, 247, 0.25)',
-                color: '#d8b4fe',
-                border: '1px solid rgba(168, 85, 247, 0.6)'
+                backgroundColor: disengageProgress > 0
+                  ? 'rgba(34, 197, 94, 0.22)'
+                  : 'rgba(168, 85, 247, 0.22)',
+                color: disengageProgress > 0 ? '#86efac' : '#d8b4fe',
+                border: disengageProgress > 0
+                  ? '1px solid rgba(34, 197, 94, 0.6)'
+                  : '1px solid rgba(168, 85, 247, 0.45)'
               }}
             >
-              Closing eyes {Math.round(disengageProgress)}%
+              {isDisengaged
+                ? disengageProgress > 0
+                  ? `Resuming ${Math.round(disengageProgress)}%`
+                  : 'Long blink 1.5s to resume'
+                : `Closing eyes ${Math.round(disengageProgress)}%`}
             </span>
           )}
 

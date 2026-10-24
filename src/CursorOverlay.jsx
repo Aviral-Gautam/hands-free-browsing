@@ -9,6 +9,7 @@ import {
 import ElementHighlighter from './components/ElementHighlighter';
 import DwellIndicator from './components/DwellIndicator';
 import EdgeNavigator from './components/EdgeNavigator';
+import DisengageBanner from './components/DisengageBanner';
 import MediaHUD from './components/MediaHUD';
 import VoiceHUD from './components/VoiceHUD';
 import OnscreenHUD from './components/OnscreenHUD';
@@ -626,6 +627,9 @@ export default function CursorOverlay() {
         disengageProgress={disengageProgress}
         onToggleTracker={handleToggleTracker}
       />
+
+      {/* Persistent pause hint + progress for the long-blink resume action */}
+      <DisengageBanner isDisengaged={isDisengaged} progress={disengageProgress} />
 
       {/* Dynamic Web Component & Interactive Element Highlight Halo */}
       <ElementHighlighter rect={highlightTarget} info={targetInfo} isSnapping={isSnapping} />

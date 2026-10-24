@@ -1,13 +1,15 @@
 // src/components/DwellIndicator.jsx
 
-export default function DwellIndicator({ x, y, progress, isComplete }) {
-  if (progress <= 0 && !isComplete) return null;
+export default function DwellIndicator({ x, y, progress, isComplete, isSettling = false }) {
+  if (progress <= 0 && !isComplete && !isSettling) return null;
 
   const size = 48;
   const strokeWidth = 3.5;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (progress / 100) * circumference;
+  const strokeDashoffset = isSettling && progress === 0
+    ? circumference * 0.8
+    : circumference - (progress / 100) * circumference;
 
   return (
     <div
@@ -46,7 +48,7 @@ export default function DwellIndicator({ x, y, progress, isComplete }) {
           cy={size / 2}
           r={radius}
           fill={isComplete ? 'rgba(34, 197, 94, 0.25)' : 'none'}
-          stroke={isComplete ? '#22c55e' : '#a855f7'}
+          stroke={isComplete ? '#22c55e' : isSettling && progress === 0 ? 'rgba(255, 255, 255, 0.4)' : '#a855f7'}
           strokeWidth={strokeWidth}
           strokeDasharray={circumference}
           strokeDashoffset={strokeDashoffset}

@@ -4,6 +4,8 @@ import { useState } from 'react';
 export default function OnscreenHUD({
   isTrackingActive,
   isHeadTrackingStreaming,
+  isDisengaged = false,
+  disengageProgress = 0,
   onToggleTracker
 }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -21,12 +23,14 @@ export default function OnscreenHUD({
         backdropFilter: 'blur(10px)',
         padding: '5px 10px',
         borderRadius: '24px',
-        border: isHeadTrackingStreaming
+        border: isDisengaged
+          ? '1.5px solid #64748b'
+          : isHeadTrackingStreaming
           ? '1.5px solid #22c55e'
           : isTrackingActive
           ? '1.5px solid #eab308'
           : '1px solid rgba(255, 255, 255, 0.15)',
-        boxShadow: isHeadTrackingStreaming
+        boxShadow: isHeadTrackingStreaming && !isDisengaged
           ? '0 0 16px rgba(34, 197, 94, 0.4), 0 4px 16px rgba(0,0,0,0.5)'
           : '0 4px 16px rgba(0,0,0,0.4)',
         zIndex: 2147483645,
@@ -44,12 +48,14 @@ export default function OnscreenHUD({
           width: '8px',
           height: '8px',
           borderRadius: '50%',
-          backgroundColor: isHeadTrackingStreaming
+          backgroundColor: isDisengaged
+            ? '#64748b'
+            : isHeadTrackingStreaming
             ? '#22c55e'
             : isTrackingActive
             ? '#eab308'
             : '#64748b',
-          boxShadow: isHeadTrackingStreaming ? '0 0 8px #22c55e' : 'none'
+          boxShadow: isHeadTrackingStreaming && !isDisengaged ? '0 0 8px #22c55e' : 'none'
         }}
       />
 
@@ -66,14 +72,40 @@ export default function OnscreenHUD({
               fontSize: '10px',
               fontWeight: '600',
               textTransform: 'uppercase',
-              backgroundColor: isHeadTrackingStreaming
+              backgroundColor: isDisengaged
+                ? 'rgba(148, 163, 184, 0.2)'
+                : isHeadTrackingStreaming
                 ? 'rgba(34, 197, 94, 0.2)'
                 : 'rgba(255, 255, 255, 0.1)',
-              color: isHeadTrackingStreaming ? '#86efac' : '#94a3b8'
+              color: isDisengaged
+                ? '#cbd5e1'
+                : isHeadTrackingStreaming
+                ? '#86efac'
+                : '#94a3b8'
             }}
           >
-            {isHeadTrackingStreaming ? 'Head Track' : 'Mouse Fallback'}
+            {isDisengaged
+              ? 'Disengaged'
+              : isHeadTrackingStreaming
+              ? 'Head Track'
+              : 'Mouse Fallback'}
           </span>
+
+          {!isDisengaged && disengageProgress > 0 && (
+            <span
+              style={{
+                padding: '2px 6px',
+                borderRadius: '10px',
+                fontSize: '10px',
+                fontWeight: '700',
+                backgroundColor: 'rgba(168, 85, 247, 0.25)',
+                color: '#d8b4fe',
+                border: '1px solid rgba(168, 85, 247, 0.6)'
+              }}
+            >
+              Closing eyes {Math.round(disengageProgress)}%
+            </span>
+          )}
 
           <button
             onClick={onToggleTracker}

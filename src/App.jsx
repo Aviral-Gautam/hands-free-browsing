@@ -114,7 +114,7 @@ export default function App() {
           </div>
           <div className="cheat-item">
             <span className="cheat-icon">🎯</span>
-            <span className="cheat-desc"><b>Dwell (1.0s):</b> Auto-clicks with circular countdown</span>
+            <span className="cheat-desc"><b>Dwell (1.3s):</b> 0.3s settle, then auto-click countdown</span>
           </div>
           <div className="cheat-item">
             <span className="cheat-icon">😉</span>
@@ -126,7 +126,7 @@ export default function App() {
           </div>
           <div className="cheat-item">
             <span className="cheat-icon">😮</span>
-            <span className="cheat-desc"><b>Open Jaw:</b> Smooth scroll down</span>
+            <span className="cheat-desc"><b>Open Jaw:</b> Smooth scroll down (easy trigger)</span>
           </div>
           <div className="cheat-item">
             <span className="cheat-icon">🤨</span>
@@ -135,6 +135,18 @@ export default function App() {
           <div className="cheat-item">
             <span className="cheat-icon">😊</span>
             <span className="cheat-desc"><b>Smile:</b> Toggle Mute</span>
+          </div>
+          <div className="cheat-item">
+            <span className="cheat-icon">⬅️</span>
+            <span className="cheat-desc"><b>Left Edge (hold):</b> Go Back</span>
+          </div>
+          <div className="cheat-item">
+            <span className="cheat-icon">➡️</span>
+            <span className="cheat-desc"><b>Right Edge (hold):</b> Go Forward</span>
+          </div>
+          <div className="cheat-item">
+            <span className="cheat-icon">😴</span>
+            <span className="cheat-desc"><b>Eyes Closed (1.5s):</b> Disengage / re-engage</span>
           </div>
         </div>
       )}

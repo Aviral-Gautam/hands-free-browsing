@@ -159,11 +159,18 @@ async function predictWebcam() {
       // Update gesture indicators on companion UI
       if (gestureEl) {
         const gestures = [];
-        if (leftWink > 0.55) gestures.push('Left Wink (Click)');
-        if (rightWink > 0.55) gestures.push('Right Wink (Scroll Up)');
-        if (jawOpen > 0.45) gestures.push('Jaw Open (Scroll Down)');
-        if (browInnerUp > 0.55) gestures.push('Brow Raise (Play/Pause)');
-        if (mouthSmile > 0.6) gestures.push('Smile (Mute)');
+        const eyesClosed = leftWink > 0.6 && rightWink > 0.6;
+
+        if (eyesClosed) {
+          gestures.push('Eyes Closed (hold 1.5s = Disengage)');
+        } else {
+          if (leftWink > 0.55) gestures.push('Left Wink (Click)');
+          if (rightWink > 0.55) gestures.push('Right Wink (Scroll Up)');
+          if (jawOpen > 0.35) gestures.push('Jaw Open (Scroll Down)');
+          if (browInnerUp > 0.55) gestures.push('Brow Raise (Play/Pause)');
+          if (mouthSmile > 0.6) gestures.push('Smile (Mute)');
+        }
+
         gestureEl.textContent = gestures.length > 0 ? gestures.join(' • ') : 'Tracking face...';
       }
 

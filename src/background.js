@@ -2,6 +2,8 @@
 
 let trackerWindowId = null;
 let isTrackingActive = false;
+// Shared disengage flag so every tab pauses/resumes together.
+let isDisengaged = false;
 
 // Cross-browser runtime detection
 const chromeOffscreen = typeof chrome !== 'undefined' ? chrome['offscreen'] : null;
@@ -48,10 +50,11 @@ function broadcastToActiveTabs(payload) {
 }
 
 async function startTracker() {
+  isDisengaged = false;
   if (hasOffscreen && chromeOffscreen) {
     await setupOffscreenDocument('offscreen.html');
     isTrackingActive = true;
-    broadcastToTabs({ type: 'TRACKER_STATUS_CHANGED', active: true });
+    broadcastToTabs({ type: 'TRACKER_STATUS_CHANGED', active: true, disengaged: false });
     return { success: true, mode: 'offscreen' };
   } else {
     // Firefox / non-offscreen: use companion window
@@ -61,7 +64,7 @@ async function startTracker() {
         if (win) {
           await chrome.windows.update(trackerWindowId, { focused: true });
           isTrackingActive = true;
-          broadcastToTabs({ type: 'TRACKER_STATUS_CHANGED', active: true });
+          broadcastToTabs({ type: 'TRACKER_STATUS_CHANGED', active: true, disengaged: false });
           return { success: true, mode: 'window', windowId: trackerWindowId };
         }
       } catch {
@@ -79,14 +82,15 @@ async function startTracker() {
 
     trackerWindowId = win.id || null;
     isTrackingActive = true;
-    broadcastToTabs({ type: 'TRACKER_STATUS_CHANGED', active: true });
+    broadcastToTabs({ type: 'TRACKER_STATUS_CHANGED', active: true, disengaged: false });
     return { success: true, mode: 'window', windowId: trackerWindowId };
   }
 }
 
 async function stopTracker() {
   isTrackingActive = false;
-  broadcastToTabs({ type: 'TRACKER_STATUS_CHANGED', active: false });
+  isDisengaged = false;
+  broadcastToTabs({ type: 'TRACKER_STATUS_CHANGED', active: false, disengaged: false });
 
   if (hasOffscreen && chromeOffscreen) {
     try {
@@ -130,7 +134,8 @@ if (chrome.windows && chrome.windows.onRemoved) {
     if (closedWindowId === trackerWindowId) {
       trackerWindowId = null;
       isTrackingActive = false;
-      broadcastToTabs({ type: 'TRACKER_STATUS_CHANGED', active: false });
+      isDisengaged = false;
+      broadcastToTabs({ type: 'TRACKER_STATUS_CHANGED', active: false, disengaged: false });
     }
   });
 }
@@ -164,8 +169,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({
       active: isTrackingActive,
       trackerWindowId,
-      mode: hasOffscreen ? 'offscreen' : 'window'
+      mode: hasOffscreen ? 'offscreen' : 'window',
+      disengaged: isDisengaged
     });
+    return true;
+  }
+
+  if (message.type === 'DISENGAGE_CHANGED') {
+    isDisengaged = Boolean(message.disengaged);
+    broadcastToTabs({ type: 'DISENGAGE_CHANGED', disengaged: isDisengaged });
+    sendResponse({ ok: true, disengaged: isDisengaged });
     return true;
   }
 
@@ -197,7 +210,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'TRACKER_STOPPED') {
     isTrackingActive = false;
-    broadcastToTabs({ type: 'TRACKER_STATUS_CHANGED', active: false });
+    isDisengaged = false;
+    broadcastToTabs({ type: 'TRACKER_STATUS_CHANGED', active: false, disengaged: false });
     sendResponse({ ok: true });
     return true;
   }

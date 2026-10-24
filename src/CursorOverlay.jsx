@@ -8,6 +8,7 @@ import {
 } from './utils/domUtils';
 import ElementHighlighter from './components/ElementHighlighter';
 import DwellIndicator from './components/DwellIndicator';
+import EdgeNavigator from './components/EdgeNavigator';
 import MediaHUD from './components/MediaHUD';
 import VoiceHUD from './components/VoiceHUD';
 import OnscreenHUD from './components/OnscreenHUD';
@@ -18,6 +19,33 @@ import { executeMediaAction } from './adapters/siteShortcuts';
 function getViewport() {
   return { w: window.innerWidth, h: window.innerHeight };
 }
+
+// ─── Tuning constants ────────────────────────────────────────────────────────
+
+// 2.0 = 100% gain over the original head-to-screen mapping.
+const HEAD_SENSITIVITY = 2.0;
+
+const DWELL_DURATION_MS = 1000;
+// Grace period after the cursor settles on a new target before the dwell
+// countdown starts. Prevents accidental clicks while passing over elements.
+const HOVER_CLICK_DELAY_MS = 300;
+
+// Edge navigation (browser back / forward)
+const EDGE_ZONE_RATIO = 0.035; // 3.5% of viewport width
+const EDGE_ZONE_MIN_PX = 28;
+const EDGE_NAV_HOLD_MS = 900;
+const EDGE_NAV_COOLDOWN_MS = 1500;
+
+// Disengage mode (long blink)
+const EYES_CLOSED_THRESHOLD = 0.6;
+const DISENGAGE_HOLD_MS = 1500;
+const DISENGAGE_TOGGLE_GUARD_MS = 700;
+
+// Gesture thresholds
+const WINK_CLICK_THRESHOLD = 0.6;
+const BROW_PLAY_THRESHOLD = 0.55;
+const SMILE_MUTE_THRESHOLD = 0.65;
+const JAW_SCROLL_DOWN_THRESHOLD = 0.35; // lowered for an easier scroll-down trigger
 
 export default function CursorOverlay() {
   console.log('CursorOverlay rendered');
@@ -36,9 +64,27 @@ export default function CursorOverlay() {
   // Dwell click state
   const [dwellProgress, setDwellProgress] = useState(0);
   const [isDwellComplete, setIsDwellComplete] = useState(false);
+  const [isSettling, setIsSettling] = useState(false);
   const dwellStartTime = useRef(null);
   const dwellTargetEl = useRef(null);
-  const DWELL_DURATION_MS = 1000;
+  const hoverSettleStart = useRef(null);
+
+  // Disengage mode (long blink) state
+  const [isDisengaged, setIsDisengaged] = useState(false);
+  const [disengageProgress, setDisengageProgress] = useState(0);
+  const isDisengagedRef = useRef(false);
+  const eyesClosedSince = useRef(null);
+  const requireEyesOpen = useRef(false);
+  const lastDisengageToggle = useRef(0);
+
+  // Edge navigation state
+  const [edgeNav, setEdgeNav] = useState(null); // { side, progress, fired }
+  const edgeSideRef = useRef(null);
+  const edgeHoldStart = useRef(null);
+  const lastEdgeNavTime = useRef(0);
+  // Latch so a single continuous hold fires only once; leave the edge to re-arm.
+  const edgeArmedRef = useRef(true);
+
 
   // Voice HUD state
   const [voiceListening, setVoiceListening] = useState(false);
@@ -57,6 +103,41 @@ export default function CursorOverlay() {
 
   // Native cursor hiding state
   const nativeCursorHidden = useRef(false);
+
+  // Keep the ref in sync so the high-frequency FACE_DATA handler can read the
+  // disengage flag without being re-subscribed on every state change.
+  useEffect(() => {
+    isDisengagedRef.current = isDisengaged;
+  }, [isDisengaged]);
+
+  // Clear every dwell / click timer. Used on click, target loss and disengage.
+  const resetDwell = useCallback(() => {
+    dwellTargetEl.current = null;
+    dwellStartTime.current = null;
+    hoverSettleStart.current = null;
+    setDwellProgress(0);
+    setIsDwellComplete(false);
+    setIsSettling(false);
+  }, []);
+
+  // Enter / leave disengage mode (long blink). The ref is updated synchronously
+  // so the same FACE_DATA frame that triggers the toggle already respects it.
+  const setDisengaged = useCallback((next) => {
+    isDisengagedRef.current = next;
+    setIsDisengaged(next);
+    resetDwell();
+    setEdgeNav(null);
+    edgeSideRef.current = null;
+    edgeHoldStart.current = null;
+    edgeArmedRef.current = true;
+
+    if (next) {
+      setHighlightTarget(null);
+      setTargetInfo(null);
+      setIsSnapping(false);
+      setDisengageProgress(0);
+    }
+  }, [resetDwell]);
 
   // ─── Native cursor management ──────────────────────────────────────────────
   // When head-tracking is active, hide the OS/browser native cursor so only our
@@ -78,12 +159,12 @@ export default function CursorOverlay() {
   }, []);
 
   useEffect(() => {
-    if (isHeadTrackingStreaming) {
+    if (isHeadTrackingStreaming && !isDisengaged) {
       hideNativeCursor();
     } else {
       showNativeCursor();
     }
-  }, [isHeadTrackingStreaming, hideNativeCursor, showNativeCursor]);
+  }, [isHeadTrackingStreaming, isDisengaged, hideNativeCursor, showNativeCursor]);
 
   // Restore native cursor on unmount
   useEffect(() => {
@@ -116,6 +197,9 @@ export default function CursorOverlay() {
       chrome.runtime.sendMessage({ type: 'GET_TRACKER_STATUS' }, (res) => {
         if (res) {
           setIsTrackingActive(Boolean(res.active));
+          if (typeof res.disengaged === 'boolean') {
+            setDisengaged(res.disengaged);
+          }
         }
       });
     }
@@ -129,7 +213,7 @@ export default function CursorOverlay() {
     }, 1000);
 
     return () => clearInterval(watchdog);
-  }, []);
+  }, [setDisengaged]);
 
   // Initialize Speech Controller
   useEffect(() => {
@@ -172,14 +256,14 @@ export default function CursorOverlay() {
 
   // Execute full synthetic click sequence on the real page (not inside our overlay)
   const executeClick = useCallback((x, y) => {
+    // Never click while disengaged (eyes-closed / pause mode)
+    if (isDisengagedRef.current) return;
+
     setIsClicking(true);
     setTimeout(() => setIsClicking(false), 300);
 
     // Reset any active dwell so a gesture-click doesn't double-fire with a pending dwell
-    dwellTargetEl.current = null;
-    dwellStartTime.current = null;
-    setDwellProgress(0);
-    setIsDwellComplete(false);
+    resetDwell();
 
     // Find the interactive target on the host page (pointer-events: none on our container
     // ensures elementFromPoint sees through us)
@@ -189,16 +273,22 @@ export default function CursorOverlay() {
     if (targetEl) {
       dispatchPointerEventSequence(targetEl, x, y);
     }
-  }, []);
+  }, [resetDwell]);
 
-  // Core element evaluation & magnetic snap logic
-  const processCoordinates = useCallback((rawX, rawY) => {
+  // Core element evaluation, edge navigation & magnetic snap logic.
+  // `allowEdgeNav` is only enabled for head tracking, so a physical mouse parked
+  // at the very edge of the window can never navigate unexpectedly.
+  // `suppressClick` freezes clicks while both eyes are closed (long-blink input).
+  const processCoordinates = useCallback((rawX, rawY, allowEdgeNav = false, suppressClick = false) => {
     const { w, h } = getViewport();
-    let finalX = Math.max(0, Math.min(w, rawX));
-    let finalY = Math.max(0, Math.min(h, rawY));
+    const now = Date.now();
+    const cursorX = Math.max(0, Math.min(w, rawX));
+    const cursorY = Math.max(0, Math.min(h, rawY));
+    let finalX = cursorX;
+    let finalY = cursorY;
 
     // Proximity Radar: scans 45px radius for interactive elements & web components
-    const match = findNearbyInteractiveTarget(finalX, finalY, 45);
+    const match = findNearbyInteractiveTarget(cursorX, cursorY, 45);
 
     let snapped = false;
     if (match && match.element) {
@@ -216,44 +306,102 @@ export default function CursorOverlay() {
         snapped = true;
       }
 
-      // Dwell Clicking logic
-      if (dwellTargetEl.current === element) {
-        if (dwellStartTime.current) {
-          const elapsed = Date.now() - dwellStartTime.current;
+      // Dwell Clicking logic with a settle delay so merely passing over a
+      // target never triggers a click.
+      if (isDisengagedRef.current) {
+        resetDwell();
+      } else if (dwellTargetEl.current === element) {
+        if (dwellStartTime.current === null) {
+          if (hoverSettleStart.current === null) hoverSettleStart.current = now;
+          if (now - hoverSettleStart.current >= HOVER_CLICK_DELAY_MS) {
+            dwellStartTime.current = now;
+            setIsSettling(false);
+          } else {
+            setIsSettling(true);
+          }
+        }
+
+        if (dwellStartTime.current !== null) {
+          const elapsed = now - dwellStartTime.current;
           const progress = Math.min(100, Math.round((elapsed / DWELL_DURATION_MS) * 100));
           setDwellProgress(progress);
 
-          if (elapsed >= DWELL_DURATION_MS) {
-            setIsDwellComplete(true);
+          if (elapsed >= DWELL_DURATION_MS && !suppressClick) {
             executeClick(finalX, finalY);
-            dwellStartTime.current = null;
-            dwellTargetEl.current = null;
+            setIsDwellComplete(true);
             setTimeout(() => {
               setDwellProgress(0);
               setIsDwellComplete(false);
             }, 400);
+          } else if (elapsed >= DWELL_DURATION_MS && suppressClick) {
+            // Both eyes are closed — abandon the dwell instead of clicking so a
+            // deliberate long blink can never fire an accidental click.
+            resetDwell();
           }
         }
       } else {
+        // New target: restart the settle delay, don't start dwelling yet
         dwellTargetEl.current = element;
-        dwellStartTime.current = Date.now();
+        hoverSettleStart.current = now;
+        dwellStartTime.current = null;
         setDwellProgress(0);
         setIsDwellComplete(false);
+        setIsSettling(true);
       }
     } else {
       setHighlightTarget(null);
       setTargetInfo(null);
-      dwellTargetEl.current = null;
-      dwellStartTime.current = null;
-      setDwellProgress(0);
-      setIsDwellComplete(false);
+      resetDwell();
+    }
+
+    // ─── Edge navigation (history back / forward) ───
+    // Evaluated after snapping: if the cursor is magnetically attached to a
+    // real target (e.g. a sidebar button inside the edge strip), that target
+    // wins and no navigation is triggered.
+    let activeEdge = null;
+    if (allowEdgeNav && !isDisengagedRef.current && !snapped) {
+      const edgeWidth = Math.max(EDGE_ZONE_MIN_PX, Math.round(w * EDGE_ZONE_RATIO));
+      if (cursorX <= edgeWidth) activeEdge = 'left';
+      else if (cursorX >= w - edgeWidth) activeEdge = 'right';
+    }
+
+    if (activeEdge) {
+      if (edgeSideRef.current !== activeEdge) {
+        edgeSideRef.current = activeEdge;
+        edgeHoldStart.current = now;
+        edgeArmedRef.current = true;
+      } else if (edgeHoldStart.current === null) {
+        edgeHoldStart.current = now;
+      }
+
+      const held = now - edgeHoldStart.current;
+      const canFire = edgeArmedRef.current && now - lastEdgeNavTime.current > EDGE_NAV_COOLDOWN_MS;
+
+      if (held >= EDGE_NAV_HOLD_MS && canFire) {
+        edgeArmedRef.current = false; // require leaving the edge before re-firing
+        lastEdgeNavTime.current = now;
+        edgeHoldStart.current = now;
+        setEdgeNav({ side: activeEdge, progress: 100, fired: true });
+        if (activeEdge === 'left') window.history.back();
+        else window.history.forward();
+      } else {
+        setEdgeNav({
+          side: activeEdge,
+          progress: Math.min(100, Math.round((held / EDGE_NAV_HOLD_MS) * 100)),
+          fired: false
+        });
+      }
+    } else if (edgeSideRef.current !== null) {
+      edgeSideRef.current = null;
+      edgeHoldStart.current = null;
+      edgeArmedRef.current = true;
+      setEdgeNav(null);
     }
 
     setIsSnapping(snapped);
     setPosition({ x: finalX, y: finalY });
 
     // Throttled hover move dispatching for tooltips and video player controls
-    const now = Date.now();
     if (now - lastHoverTime.current > 40) {
       const hovered = match?.element || document.elementFromPoint(finalX, finalY);
       if (hovered) {
@@ -261,16 +409,24 @@ export default function CursorOverlay() {
       }
       lastHoverTime.current = now;
     }
-  }, [executeClick]);
+  }, [executeClick, resetDwell]);
 
   // 1. Listen for background & tracker messages
   useEffect(() => {
     const handleMessage = (message) => {
       if (message.type === 'TRACKER_STATUS_CHANGED') {
         setIsTrackingActive(Boolean(message.active));
+        if (typeof message.disengaged === 'boolean') {
+          setDisengaged(message.disengaged);
+        }
         if (!message.active) {
           setIsHeadTrackingStreaming(false);
         }
+        return;
+      }
+
+      if (message.type === 'DISENGAGE_CHANGED') {
+        setDisengaged(Boolean(message.disengaged));
         return;
       }
 
@@ -289,11 +445,54 @@ export default function CursorOverlay() {
           mouthSmile = 0
         } = message.data;
 
+        const now = Date.now();
+
+        // ─── Long blink (both eyes closed ~1.5s) → disengage toggle ───
+        const eyesClosed =
+          leftWink > EYES_CLOSED_THRESHOLD && rightWink > EYES_CLOSED_THRESHOLD;
+
+        if (eyesClosed && !requireEyesOpen.current) {
+          if (eyesClosedSince.current === null) eyesClosedSince.current = now;
+          const held = now - eyesClosedSince.current;
+          setDisengageProgress(
+            Math.min(100, Math.round((held / DISENGAGE_HOLD_MS) * 100))
+          );
+
+          if (held >= DISENGAGE_HOLD_MS && now - lastDisengageToggle.current > DISENGAGE_TOGGLE_GUARD_MS) {
+            lastDisengageToggle.current = now;
+            eyesClosedSince.current = null;
+            // Require the eyes to open again before another toggle, otherwise a
+            // user who keeps their eyes shut would flip the mode every 1.5s.
+            requireEyesOpen.current = true;
+            setDisengageProgress(0);
+
+            const next = !isDisengagedRef.current;
+            setDisengaged(next);
+            // Share the mode with every other tab through the background hub.
+            try {
+              chrome.runtime.sendMessage({ type: 'DISENGAGE_CHANGED', disengaged: next })?.catch?.(() => {});
+            } catch {
+              // ignore messaging failures
+            }
+          }
+        } else {
+          // Only re-arm once the eyes are actually open again.
+          if (!eyesClosed) requireEyesOpen.current = false;
+          eyesClosedSince.current = null;
+          setDisengageProgress(0);
+        }
+
+        // While disengaged: freeze the cursor and ignore every gesture.
+        if (isDisengagedRef.current) return;
+
         const { w, h } = getViewport();
 
-        // Screen coordinate mapping (mirror inversion on X)
-        const targetX = (1 - x) * w;
-        const targetY = (y * 1.5 - 0.25) * h;
+        // Head-to-screen mapping with sensitivity gain applied around the
+        // calibrated centre (0.5), then mirror-inverted on X.
+        const nx = 0.5 + (x - 0.5) * HEAD_SENSITIVITY;
+        const ny = 0.5 + (y - 0.5) * 1.5 * HEAD_SENSITIVITY;
+        const targetX = (1 - nx) * w;
+        const targetY = ny * h;
 
         // Micro-deadzone & Adaptive EMA Smoothing
         const deltaX = Math.abs(targetX - smoothedPos.current.x);
@@ -306,24 +505,33 @@ export default function CursorOverlay() {
           smoothedPos.current.y += alpha * (targetY - smoothedPos.current.y);
         }
 
-        processCoordinates(smoothedPos.current.x, smoothedPos.current.y);
+        // Head tracking is the only source allowed to trigger edge navigation.
+        // Eyes-closed frames may neither navigate nor click.
+        processCoordinates(
+          smoothedPos.current.x,
+          smoothedPos.current.y,
+          !eyesClosed,
+          eyesClosed
+        );
 
-        // Gestures to Browser Actions (800ms debounce)
-        const now = Date.now();
+        // Gestures to Browser Actions (800ms debounce).
+        // Suppressed while both eyes are closed so a long blink never clicks.
+        if (eyesClosed) return;
+
         if (now - lastActionTime.current > 800) {
-          if (leftWink > 0.6) {
+          if (leftWink > WINK_CLICK_THRESHOLD) {
             executeClick(smoothedPos.current.x, smoothedPos.current.y);
             lastActionTime.current = now;
-          } else if (browInnerUp > 0.55) {
+          } else if (browInnerUp > BROW_PLAY_THRESHOLD) {
             executeMediaAction('togglePlay');
             lastActionTime.current = now;
-          } else if (mouthSmile > 0.65) {
+          } else if (mouthSmile > SMILE_MUTE_THRESHOLD) {
             executeMediaAction('toggleMute');
             lastActionTime.current = now;
-          } else if (rightWink > 0.6) {
+          } else if (rightWink > WINK_CLICK_THRESHOLD) {
             window.scrollBy({ top: -350, behavior: 'smooth' });
             lastActionTime.current = now;
-          } else if (jawOpen > 0.5) {
+          } else if (jawOpen > JAW_SCROLL_DOWN_THRESHOLD) {
             window.scrollBy({ top: 350, behavior: 'smooth' });
             lastActionTime.current = now;
           }
@@ -333,17 +541,17 @@ export default function CursorOverlay() {
 
     chrome.runtime.onMessage.addListener(handleMessage);
     return () => chrome.runtime.onMessage.removeListener(handleMessage);
-  }, [processCoordinates, executeClick]);
+  }, [processCoordinates, executeClick, setDisengaged]);
 
   // 2. Mouse / Pointer Fallback when Head Tracking is in Standby
   useEffect(() => {
     const handlePointerMove = (e) => {
       // If active head tracking stream is running, ignore native mouse moves
-      if (isHeadTrackingStreaming) return;
+      if (isHeadTrackingStreaming || isDisengagedRef.current) return;
 
       smoothedPos.current.x = e.clientX;
       smoothedPos.current.y = e.clientY;
-      processCoordinates(e.clientX, e.clientY);
+      processCoordinates(e.clientX, e.clientY, false);
     };
 
     window.addEventListener('pointermove', handlePointerMove, { passive: true });
@@ -375,11 +583,20 @@ export default function CursorOverlay() {
       <OnscreenHUD
         isTrackingActive={isTrackingActive}
         isHeadTrackingStreaming={isHeadTrackingStreaming}
+        isDisengaged={isDisengaged}
+        disengageProgress={disengageProgress}
         onToggleTracker={handleToggleTracker}
       />
 
       {/* Dynamic Web Component & Interactive Element Highlight Halo */}
       <ElementHighlighter rect={highlightTarget} info={targetInfo} isSnapping={isSnapping} />
+
+      {/* Back / Forward zone feedback on the screen edges */}
+      <EdgeNavigator
+        side={isDisengaged ? null : edgeNav?.side}
+        progress={edgeNav?.progress || 0}
+        fired={edgeNav?.fired || false}
+      />
 
       {/* Circular Dwell Progress Ring */}
       <DwellIndicator
@@ -387,6 +604,7 @@ export default function CursorOverlay() {
         y={position.y}
         progress={dwellProgress}
         isComplete={isDwellComplete}
+        isSettling={isSettling}
       />
 
       {/* Floating Hands-Free Media Dock (YouTube & HTML5 Video) */}
@@ -448,6 +666,7 @@ export default function CursorOverlay() {
           transform: 'translate(-50%, -50%)',
           pointerEvents: 'none',
           zIndex: 2147483647,
+          opacity: isDisengaged ? 0 : 1,
           transition: 'width 0.15s, height 0.15s, border-color 0.15s, box-shadow 0.15s'
         }}
       />
@@ -469,6 +688,7 @@ export default function CursorOverlay() {
           boxShadow: '0 0 6px rgba(0,0,0,0.8)',
           transform: 'translate(-50%, -50%)',
           pointerEvents: 'none',
+          opacity: isDisengaged ? 0 : 1,
           zIndex: 2147483647
         }}
       />
@@ -486,12 +706,16 @@ export default function CursorOverlay() {
           fontWeight: '700',
           letterSpacing: '0.3px',
           color: '#ffffff',
-          backgroundColor: isSnapping
+          backgroundColor: isDisengaged
+            ? 'rgba(51, 65, 85, 0.9)'
+            : isSnapping
             ? 'rgba(2, 132, 199, 0.9)'
             : isHeadTrackingStreaming
             ? 'rgba(126, 34, 206, 0.85)'
             : 'rgba(30, 41, 59, 0.85)',
-          border: isSnapping
+          border: isDisengaged
+            ? '1px solid #94a3b8'
+            : isSnapping
             ? '1px solid #38bdf8'
             : isHeadTrackingStreaming
             ? '1px solid #c084fc'
@@ -503,7 +727,13 @@ export default function CursorOverlay() {
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
         }}
       >
-        {isSnapping ? '🎯 Snapped' : isHeadTrackingStreaming ? '👁️ Head Tracking' : '💤 Standby'}
+        {isDisengaged
+          ? '😴 Disengaged'
+          : isSnapping
+          ? '🎯 Snapped'
+          : isHeadTrackingStreaming
+          ? '👁️ Head Tracking'
+          : '💤 Standby'}
       </div>
     </>
   );

@@ -23,9 +23,9 @@
   },
   "background": {
     "scripts": [
-      "background.js"
+      "src/background.js"
     ],
-    "service_worker": "background.js"
+    "service_worker": "src/background.js"
   },
   "action": {
     "default_popup": "index.html",
@@ -37,7 +37,7 @@
         "<all_urls>"
       ],
       "js": [
-        "content.js"
+        "src/content.jsx"
       ],
       "run_at": "document_idle"
     }
